@@ -11,8 +11,6 @@ import transfer as trans
 BASEURL = 'http://e4ftl01.cr.usgs.gov/MOLT/'
 FIRSTDATE = '2000.02.18'
 PRODUCT = 'MOD13A1.005'
-ACCESSKEY = 'AKIAJ2R6HW5XJPY2GM3Q'
-SECRETKEY = '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'
 COLLECTION = 5
 
 def raw_to_iso_date(date_str, fmt="%Y.%m.%d"):

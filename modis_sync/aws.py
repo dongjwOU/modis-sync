@@ -6,12 +6,13 @@ from  urllib2 import urlopen
 from boto.s3.connection import S3Connection
 from boto.s3.key import Key
 from boto.exception import S3CreateError
+from boto.ses.connection import SESConnection
 
 def get_creds(fname='aws.json'):
     try:
         return json.loads(open(fname).read())
     except IOError:
-        print 'Missing credentials. Please put AWS credentials in aws.json file in same folder as transfer.py.'
+        print 'Missing credentials. Please put AWS credentials in aws.json file in same folder as transfer.py.\nRequired fields are "access_key" and "secret_key".'
         exit
     
 def get_bucket_conn(bucket_name, creds=get_creds()):
@@ -70,3 +71,9 @@ def upload_to_s3(local_path, s3_key, bucket_conn=None, rrs=True):
     print "\nUpload complete\n"
     
     return k
+
+def send_email(to_email, from_email, subject=None, body=None,
+               creds=get_creds()):
+    ses = SESConnection(creds['access_key'], creds['secret_key'])
+    return ses.send_email(from_email.strip(), subject, body, to_email.strip())
+

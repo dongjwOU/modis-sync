@@ -119,6 +119,7 @@ def mirror_file(uri, local_dir, bucket_conn):
     if not aws.exists_on_s3(remote_path, bucket_conn=bucket_conn):
         local_path = aws.download(uri, local_path)
         aws.upload_to_s3(local_path, remote_path, bucket_conn)
+        os.remove(local_path)
         return remote_path
 
 def prep_email_body(product, file_list, uploaded_list, dates_checked):

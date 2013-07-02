@@ -121,6 +121,8 @@ def mirror_file(uri, local_dir, bucket_conn):
         aws.upload_to_s3(local_path, remote_path, bucket_conn)
         os.remove(local_path)
         return remote_path
+    else:
+        return
 
 def prep_email_body(product, file_list, uploaded_list, dates_checked):
     subject = "[modis-sync] %s: %s new files acquired" % (product, len(uploaded_list))

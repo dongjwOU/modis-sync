@@ -128,12 +128,12 @@ def prep_email_body(product, file_list, uploaded_list, dates_checked):
     subject = "[modis-sync] %s: %s new files acquired" % (product, len(uploaded_list))
 
     body = "files checked: %i\n" % len(file_list)
-    body += "files acquired: %i\n" % len(uploaded_list)
-    body += "\ndate(s) checked:\n"
+    body += "files acquired: %i\n\n" % len(uploaded_list)
+    body += "date(s) checked:\n"
     body += "\n".join(dates_checked)
-    if uploaded_list:
+    if any(uploaded_list):
         body += "\n\nUploaded:\n"
-        body += "\n".join(uploaded_list)
+        body += "\n".join([i for i in uploaded_list if i])
     
     return subject, body
 
@@ -170,7 +170,7 @@ def main(product="MOD13A1.005", tiles=['all'],
 
         uploaded = [mirror_file(fname, '/tmp/', b) for fname in file_list]
         print 'Uploaded %s files to S3.' % len(uploaded)
-        subject, body = prep_email_body(product, file_list, uploaded, dates)
+        subject, body = prep_email_body(product, file_list, [i for i in uploaded if i], dates)
 
     except Exception:
         subject, body = exception_email()

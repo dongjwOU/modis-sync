@@ -14,6 +14,7 @@ SENSOR = 'MOLT'
 COLLECTION = 5
 BASEURL = 'http://e4ftl01.cr.usgs.gov/%s/' % SENSOR
 PRODUCT = 'MOD13A1.%03d' % COLLECTION
+BUCKET = 'formastaging'
 
 def raw_to_iso_date(date_str, fmt="%Y.%m.%d"):
     """Convert a raw date from site (e.g. '2001.01.01') to iso format (e.g.
@@ -59,7 +60,7 @@ def get_soup(url):
     bs = BeautifulSoup(html, 'lxml')
     return bs
 
-def get_hdf_urls(date, product=PRODUCT):
+def get_hdf_urls(date, product):
     """Build urls for all HDF files on a given date page 
        (e.g. http://e4ftl01.cr.usgs.gov/MOLT/MOD13A1.005/2013.04.23/)."""
     url = os.path.join(BASEURL, product, date)
@@ -82,8 +83,8 @@ def filter_tiles(file_list, tiles):
     '''Keep only files that correspond to elements in tiles list.'''
     return [f for f in file_list if t.matches_tiles(f, tiles)]
 
-def get_dates_list(min_date):
-    url = os.path.join(BASEURL, PRODUCT)
+def get_dates_list(product, min_date):
+    url = os.path.join(BASEURL, product)
     date_soup = get_soup(url)
     return filter_dates(get_dates(date_soup), min_date)
 
@@ -112,17 +113,16 @@ def drop_collection(path):
     
 def mirror_file(uri, local_dir, bucket_conn):
     '''Check whether file at uri has already been uploaded to S3.'''
-    remote_path = uri.replace(BASEURL, '')
+    remote_path = drop_collection(fix_date_in_path(uri.replace(BASEURL, '')))
     local_path = os.path.join(local_dir, uri.replace(BASEURL, ''))
     local_path = drop_collection(fix_date_in_path(local_path))
-    if not aws.exists_on_s3(fix_date_in_path(remote_path), bucket_conn=bucket_conn):
+    if not aws.exists_on_s3(remote_path, bucket_conn=bucket_conn):
         local_path = aws.download(uri, local_path)
-        remote_path = fix_date_in_path(remote_path)
         aws.upload_to_s3(local_path, remote_path, bucket_conn)
         return remote_path
 
-def prep_email(file_list, uploaded_list, dates_checked):
-    subject = "[modis-sync] %s: %s new files acquired" % (PRODUCT, len(uploaded_list))
+def prep_email_body(product, file_list, uploaded_list, dates_checked):
+    subject = "[modis-sync] %s: %s new files acquired" % (product, len(uploaded_list))
 
     body = "files checked: %i\n" % len(file_list)
     body += "files acquired: %i\n" % len(uploaded_list)
@@ -163,11 +163,11 @@ def main(product="MOD13A1.005", tiles=['all'],
         # Get file list for those dates
         file_list = get_file_list(product, tiles, dates)
         
-        b = aws.get_bucket_conn('modisfiles')
+        b = aws.get_bucket_conn(BUCKET)
 
         uploaded = [mirror_file(fname, '/tmp/', b) for fname in file_list]
         print 'Uploaded %s files to S3.' % len(uploaded)
-        subject, body = prep_email_body(file_list, uploaded_list, dates_checked)
+        subject, body = prep_email_body(product, file_list, uploaded_list, dates_checked)
 
     except Exception:
         subject, body = exception_email()

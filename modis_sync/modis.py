@@ -60,7 +60,7 @@ def get_soup(url):
     bs = BeautifulSoup(html, 'lxml')
     return bs
 
-def get_hdf_urls(date, product):
+def get_hdf_urls(product, date):
     """Build urls for all HDF files on a given date page 
        (e.g. http://e4ftl01.cr.usgs.gov/MOLT/MOD13A1.005/2013.04.23/)."""
     url = os.path.join(BASEURL, product, date)
@@ -97,7 +97,7 @@ def get_file_list(product, tiles, dates):
     ['http://e4ftl01.cr.usgs.gov/MOLT/MOD13A1.005/2013.04.23/MOD13A1.A2013113.h00v09.005.2013130030546.hdf',
     'http://e4ftl01.cr.usgs.gov/MOLT/MOD13A1.005/2013.04.23/MOD13A1.A2013113.h00v10.005.2013130030234.hdf']
 """
-    file_list = [f for n in dates for f in get_hdf_urls(n)]
+    file_list = [f for n in dates for f in get_hdf_urls(product, n)]
     return filter_tiles(file_list, tiles)
 
 def fix_date_in_path(path):
@@ -159,7 +159,7 @@ def main(product="MOD13A1.005", tiles=['all'],
         tiles = t.tile_set(tiles)
 
         # Getting available dates
-        dates = get_dates_list(min_date)
+        dates = get_dates_list(product, min_date)
         
         # Get file list for those dates
         file_list = get_file_list(product, tiles, dates)
@@ -168,7 +168,7 @@ def main(product="MOD13A1.005", tiles=['all'],
 
         uploaded = [mirror_file(fname, '/tmp/', b) for fname in file_list]
         print 'Uploaded %s files to S3.' % len(uploaded)
-        subject, body = prep_email_body(product, file_list, uploaded_list, dates_checked)
+        subject, body = prep_email_body(product, file_list, uploaded, dates)
 
     except Exception:
         subject, body = exception_email()

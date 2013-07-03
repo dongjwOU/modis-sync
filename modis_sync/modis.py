@@ -1,17 +1,20 @@
 import time
 import os
+import sys
 import datetime
+import traceback
 from  urllib2 import urlopen
 
 from bs4 import BeautifulSoup
 
 import tiles as t
-import transfer as trans
+import aws
 
-BASEURL = 'http://e4ftl01.cr.usgs.gov/MOLT/'
-FIRSTDATE = '2000.02.18'
-PRODUCT = 'MOD13A1.005'
+SENSOR = 'MOLT'
 COLLECTION = 5
+BASEURL = 'http://e4ftl01.cr.usgs.gov/%s/' % SENSOR
+PRODUCT = 'MOD13A1.%03d' % COLLECTION
+BUCKET = 'formastaging'
 
 def raw_to_iso_date(date_str, fmt="%Y.%m.%d"):
     """Convert a raw date from site (e.g. '2001.01.01') to iso format (e.g.
@@ -57,7 +60,7 @@ def get_soup(url):
     bs = BeautifulSoup(html, 'lxml')
     return bs
 
-def get_hdf_urls(date, product=PRODUCT):
+def get_hdf_urls(product, date):
     """Build urls for all HDF files on a given date page 
        (e.g. http://e4ftl01.cr.usgs.gov/MOLT/MOD13A1.005/2013.04.23/)."""
     url = os.path.join(BASEURL, product, date)
@@ -80,7 +83,12 @@ def filter_tiles(file_list, tiles):
     '''Keep only files that correspond to elements in tiles list.'''
     return [f for f in file_list if t.matches_tiles(f, tiles)]
 
-def get_file_list(product, tiles, min_date):
+def get_dates_list(product, min_date):
+    url = os.path.join(BASEURL, product)
+    date_soup = get_soup(url)
+    return filter_dates(get_dates(date_soup), min_date)
+
+def get_file_list(product, tiles, dates):
     """Extract urls for all MOD13A1 HDF files on NASA site. Filters 
     out old files based on min_date, and only keeps files corresponding
     to elements of the tiles list.
@@ -89,9 +97,7 @@ def get_file_list(product, tiles, min_date):
     ['http://e4ftl01.cr.usgs.gov/MOLT/MOD13A1.005/2013.04.23/MOD13A1.A2013113.h00v09.005.2013130030546.hdf',
     'http://e4ftl01.cr.usgs.gov/MOLT/MOD13A1.005/2013.04.23/MOD13A1.A2013113.h00v10.005.2013130030234.hdf']
 """
-    date_soup = get_soup(os.path.join(BASEURL, product))
-    dates = filter_dates(get_dates(date_soup), min_date)
-    file_list = [f for n in dates for f in get_hdf_urls(n)]
+    file_list = [f for n in dates for f in get_hdf_urls(product, n)]
     return filter_tiles(file_list, tiles)
 
 def fix_date_in_path(path):
@@ -107,20 +113,72 @@ def drop_collection(path):
     
 def mirror_file(uri, local_dir, bucket_conn):
     '''Check whether file at uri has already been uploaded to S3.'''
-    remote_path = uri.replace(BASEURL, '')
+    remote_path = drop_collection(fix_date_in_path(uri.replace(BASEURL, '')))
     local_path = os.path.join(local_dir, uri.replace(BASEURL, ''))
     local_path = drop_collection(fix_date_in_path(local_path))
-    if not trans.exists_on_s3(fix_date_in_path(remote_path), bucket_conn=bucket_conn):
-        local_path = trans.download(uri, local_path)
-        remote_path = fix_date_in_path(remote_path)
-        trans.upload_to_s3(local_path, remote_path, bucket_conn)
+    if not aws.exists_on_s3(remote_path, bucket_conn=bucket_conn):
+        local_path = aws.download(uri, local_path)
+        aws.upload_to_s3(local_path, remote_path, bucket_conn)
+        os.remove(local_path)
         return remote_path
+    else:
+        return
 
+def prep_email_body(product, file_list, uploaded_list, dates_checked):
+    subject = "[modis-sync] %s: %s new files acquired" % (product, len(uploaded_list))
+
+    body = "files checked: %i\n" % len(file_list)
+    body += "files acquired: %i\n\n" % len(uploaded_list)
+    body += "date(s) checked:\n"
+    body += "\n".join(dates_checked)
+    if any(uploaded_list):
+        body += "\n\nUploaded:\n"
+        body += "\n".join([i for i in uploaded_list if i])
+    
+    return subject, body
+
+def send_status_email(address, body, subject):
+    '''Use AWS Simple Email Service to send status email.'''
+    return aws.send_email(to_email=address, from_email=address, subject=subject, body=body)
+
+def min_date_default(days=90):
+    '''Calculate the default minimum date as 90 days before today'''
+    return [datetime.date.today() - datetime.timedelta(days)][0].isoformat()
+
+def exception_email():
+    '''Construct exceptions email.'''
+    exc_type, exc_value, exc_traceback = sys.exc_info()
+    error = ''.join(traceback.format_exception(exc_type, exc_value, exc_traceback))
+    body = 'Exception:\n\n%s' % error
+    subject = '[modis-sync] %s' % exc_type
+    return subject, body
+    
 def main(product="MOD13A1.005", tiles=['all'], 
-         min_date=[datetime.date.today() - datetime.timedelta(90)][0].isoformat()):
+         min_date=[datetime.date.today() - datetime.timedelta(90)][0].isoformat(),
+         email_list=[]):
     '''Get list of all HDF files on MODIS server and filter by tiles and min_date.'''
-    tiles = t.tile_set(tiles)
-    file_list = get_file_list(product, tiles, min_date)
-    b = trans.get_bucket_conn('modisfiles')
-    uploaded = [mirror_file(fname, '/tmp/', b) for fname in file_list]
-    print 'Uploaded %s files to S3.' % len(uploaded)
+    try:
+        tiles = t.tile_set(tiles)
+
+        # Getting available dates
+        dates = get_dates_list(product, min_date)
+        
+        # Get file list for those dates
+        file_list = get_file_list(product, tiles, dates)
+        
+        b = aws.get_bucket_conn(BUCKET)
+
+        uploaded = [mirror_file(fname, '/tmp/', b) for fname in file_list]
+        print 'Uploaded %s files to S3.' % len(uploaded)
+        subject, body = prep_email_body(product, file_list, [i for i in uploaded if i], dates)
+
+    except Exception:
+        subject, body = exception_email()
+
+    for address in email_list:
+        print 'Sending status email to %s:' % address
+        print 'Subject: %s' % subject
+        print 'Body:\n%s' % body
+        send_status_email(address, body, subject)
+    
+    return

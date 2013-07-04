@@ -160,7 +160,7 @@ def main(product="MOD13A1.005", tiles=['all'],
          email_list=[]):
     '''Get list of all HDF files on MODIS server and filter by tiles and min_date.
 
-    Note that 'tiles' must be a 'all' or a list of tuples.'''
+    Note that 'tiles' must be ['all'] or a list of tuples.'''
     try:
         tiles = t.tile_set(tiles)
 

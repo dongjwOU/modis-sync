@@ -10,7 +10,11 @@ from boto.ses.connection import SESConnection
 
 def get_creds(fname='aws.json'):
     try:
-        return json.loads(open(fname).read())
+        if os.path.exists(fname):
+            return json.loads(open(fname).read())
+        else:
+            return dict(access_key=os.getenv("aws_access_key_id"),
+                        secret_key=os.getenv("aws_secret_access_key"))
     except IOError:
         print 'Missing credentials. Please put AWS credentials in aws.json file in same folder as transfer.py.\nRequired fields are "access_key" and "secret_key".'
         exit

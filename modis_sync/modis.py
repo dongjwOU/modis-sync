@@ -189,9 +189,7 @@ def main(base_url, product, tile_list, min_date, bucket, staging_bucket, email_l
     try:
         collection = int(product.split('.')[1])
         
-        print tile_list
         tiles = t.tile_set(tile_list)
-        print tiles
 
         # Getting available dates
         dates = get_dates_list(base_url, product, min_date)

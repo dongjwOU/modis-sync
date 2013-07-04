@@ -15,6 +15,7 @@ COLLECTION = 5
 BASEURL = 'http://e4ftl01.cr.usgs.gov/%s/' % SENSOR
 PRODUCT = 'MOD13A1.%03d' % COLLECTION
 BUCKET = 'formastaging'
+ARCHIVEBUCKET = 'modisfiles'
 
 def raw_to_iso_date(date_str, fmt="%Y.%m.%d"):
     """Convert a raw date from site (e.g. '2001.01.01') to iso format (e.g.
@@ -111,16 +112,17 @@ def drop_collection(path):
     '''Remove collection number from product string in path.'''
     return path.replace('.00%s' % COLLECTION, '', 1)
     
-def mirror_file(uri, local_dir, bucket_conn):
+def mirror_file(uri, local_dir, staging_bucket_conn, archive_bucket_conn=None):
     '''Check whether file at uri has already been uploaded to S3.'''
     remote_path = drop_collection(fix_date_in_path(uri.replace(BASEURL, '')))
     local_path = os.path.join(local_dir, uri.replace(BASEURL, ''))
     local_path = drop_collection(fix_date_in_path(local_path))
-    if not aws.exists_on_s3(remote_path, bucket_conn=bucket_conn):
-        local_path = aws.download(uri, local_path)
-        aws.upload_to_s3(local_path, remote_path, bucket_conn)
-        os.remove(local_path)
-        return remote_path
+    if not aws.exists_on_s3(remote_path, bucket_conn=staging_bucket_conn):
+        if archive_bucket_conn and not aws.exists_on_s3(remote_path, bucket_conn=archive_bucket_conn):
+            local_path = aws.download(uri, local_path)
+            aws.upload_to_s3(local_path, remote_path, staging_bucket_conn)
+            os.remove(local_path)
+            return remote_path
     else:
         return
 
@@ -156,7 +158,9 @@ def exception_email():
 def main(product="MOD13A1.005", tiles=['all'], 
          min_date=[datetime.date.today() - datetime.timedelta(90)][0].isoformat(),
          email_list=[]):
-    '''Get list of all HDF files on MODIS server and filter by tiles and min_date.'''
+    '''Get list of all HDF files on MODIS server and filter by tiles and min_date.
+
+    Note that 'tiles' must be a 'all' or a list of tuples.'''
     try:
         tiles = t.tile_set(tiles)
 
@@ -167,8 +171,9 @@ def main(product="MOD13A1.005", tiles=['all'],
         file_list = get_file_list(product, tiles, dates)
         
         b = aws.get_bucket_conn(BUCKET)
+        ba = aws.get_bucket_conn(ARCHIVEBUCKET)
 
-        uploaded = [mirror_file(fname, '/tmp/', b) for fname in file_list]
+        uploaded = [mirror_file(fname, '/tmp/', b, ba) for fname in file_list]
         print 'Uploaded %s files to S3.' % len(uploaded)
         subject, body = prep_email_body(product, file_list, [i for i in uploaded if i], dates)
 
